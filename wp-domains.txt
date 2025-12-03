@@ -1,59 +1,64 @@
 <?php
 /**
- * Advanced Domain Scanner dengan Lokasi Folder
- * Version: 4.0 - Complete Folder Path Display
+ * Optimized Domain Scanner dengan Caching dan Parallel Processing
+ * Version: 5.0 - Fast & Efficient Scan
  */
 
 // ==============================================
-// KONFIGURASI AWAL
+// KONFIGURASI OPTIMAL
 // ==============================================
 error_reporting(0);
-ini_set('max_execution_time', 0);
-ini_set('memory_limit', '-1');
-set_time_limit(0);
+ini_set('max_execution_time', 180); // 3 menit maksimal
+ini_set('memory_limit', '256M'); // Batasi memory
+set_time_limit(180);
 
-// Dapatkan semua TLD dari IANA (simplified)
-$all_tlds = get_all_tlds_from_iana();
+// Cache DNS untuk menghindari query berulang
+$dns_cache = [];
+$http_cache = [];
+
+// Batasi TLD yang paling umum digunakan (95% kasus)
+$priority_tlds = [
+    'com', 'net', 'org', 'id', 'co.id', 'ac.id', 'sch.id', 'go.id',
+    'uk', 'co.uk', 'us', 'au', 'ca', 'de', 'fr', 'it', 'es', 
+    'nl', 'ru', 'cn', 'jp', 'sg', 'my', 'ph', 'vn', 'th',
+    'xyz', 'online', 'site', 'tech', 'store', 'shop', 'app', 'dev'
+];
 
 // ==============================================
-// FUNGSI UTAMA
+// FUNGSI OPTIMIZED
 // ==============================================
 
 /**
- * Scan SEMUA folder dengan informasi lengkap
+ * Scan direktori dengan batasan depth dan filter
  */
-function scan_server_with_paths($base_paths = null) {
+function optimized_directory_scan($base_paths = null, $max_depth = 2) {
     if ($base_paths === null) {
+        // Fokus pada web directories saja
         $base_paths = [
-            '/',
-            '/home',
-            '/var/www',
-            '/var/www/html',
-            '/public_html',
+            isset($_SERVER['DOCUMENT_ROOT']) ? $_SERVER['DOCUMENT_ROOT'] : '.',
             '.',
             '..',
-            realpath('.'),
-            dirname(__FILE__),
-            isset($_SERVER['DOCUMENT_ROOT']) ? $_SERVER['DOCUMENT_ROOT'] : '/'
+            '../..',
+            '../../..'
         ];
     }
     
-    $folders_with_paths = [];
+    $folders = [];
     
     foreach ($base_paths as $path) {
         if (is_dir($path)) {
-            $folders = scan_directory_with_full_path($path, 0, 3);
-            $folders_with_paths = array_merge($folders_with_paths, $folders);
+            $scanned = scan_with_filters($path, 0, $max_depth);
+            $folders = array_merge($folders, $scanned);
         }
     }
     
-    return $folders_with_paths;
+    return array_slice(array_unique($folders), 0, 100); // Batasi maksimal 100 folder
 }
 
 /**
- * Scan direktori dengan menyimpan path lengkap
+ * Scan dengan filter untuk menghindari folder sistem
  */
-function scan_directory_with_full_path($path, $depth = 0, $max_depth = 3) {
+function scan_with_filters($path, $depth = 0, $max_depth = 2) {
     $folders = [];
     
     if ($depth >= $max_depth) {
@@ -61,319 +66,373 @@ function scan_directory_with_full_path($path, $depth = 0, $max_depth = 3) {
     }
     
     try {
-        if (is_readable($path)) {
-            $items = @scandir($path);
-            if ($items) {
-                foreach ($items as $item) {
-                    if ($item == '.' || $item == '..') continue;
+        // Skip jika folder tidak bisa dibaca
+        if (!is_readable($path)) {
+            return $folders;
+        }
+        
+        $items = @scandir($path);
+        if (!$items) {
+            return $folders;
+        }
+        
+        foreach ($items as $item) {
+            if ($item == '.' || $item == '..') continue;
+            
+            $full_path = rtrim($path, '/') . '/' . $item;
+            
+            if (is_dir($full_path)) {
+                // Skip folder sistem dan temporary
+                $skip_patterns = [
+                    '/^\./', // hidden
+                    '/^(node_modules|vendor|bower_components|cache|tmp|temp|logs|test|demo)$/i',
+                    '/^(backup|old|new|archive|trash)$/i',
+                ];
+                
+                $skip = false;
+                foreach ($skip_patterns as $pattern) {
+                    if (preg_match($pattern, $item)) {
+                        $skip = true;
+                        break;
+                    }
+                }
+                
+                if (!$skip && is_valid_domain_candidate($item)) {
+                    $folders[] = [
+                        'name' => $item,
+                        'path' => $full_path,
+                        'depth' => $depth
+                    ];
                     
-                    $full_path = rtrim($path, '/') . '/' . $item;
-                    
-                    if (is_dir($full_path)) {
-                        // Skip folder sistem dan cache
-                        $skip_patterns = [
-                            '/^\./', // hidden folders
-                            '/^(node_modules|vendor|bower_components|cache|tmp|temp|log|logs)$/i',
-                            '/^v\d+\.\d+\.\d+$/', // version folders
-                        ];
-                        
-                        $skip = false;
-                        foreach ($skip_patterns as $pattern) {
-                            if (preg_match($pattern, $item)) {
-                                $skip = true;
-                                break;
-                            }
-                        }
-                        
-                        if (!$skip) {
-                            $folders[] = [
-                                'name' => $item,
-                                'path' => $full_path,
-                                'depth' => $depth,
-                                'parent' => $path,
-                                'realpath' => realpath($full_path) ?: $full_path
-                            ];
-                            
-                            // Scan subfolder
-                            $subfolders = scan_directory_with_full_path($full_path, $depth + 1, $max_depth);
-                            $folders = array_merge($folders, $subfolders);
-                        }
+                    // Scan subfolder dengan limit
+                    if ($depth < 1) { // Hanya 1 level deep
+                        $subfolders = scan_with_filters($full_path, $depth + 1, $max_depth);
+                        $folders = array_merge($folders, $subfolders);
                     }
                 }
             }
         }
     } catch (Exception $e) {
-        // Ignore errors
+        // Skip error
     }
     
     return $folders;
 }
 
 /**
- * Ekstrak nama domain dari folder dengan menyimpan path
+ * Validasi apakah nama folder bisa menjadi domain candidate
  */
-function extract_domain_candidates_with_paths($folders) {
-    $candidates = [];
+function is_valid_domain_candidate($name) {
+    // Hapus karakter non-alfanumerik
+    $clean = preg_replace('/[^a-z0-9]/i', '', $name);
     
-    foreach ($folders as $folder) {
-        $name = $folder['name'];
-        $path = $folder['path'];
-        
-        // Skip nama yang tidak mungkin menjadi domain
-        if (preg_match('/^[0-9]+$/', $name) || 
-            strlen($name) < 2 || 
-            preg_match('/^[a-f0-9]{32}$/i', $name)) {
-            continue;
-        }
-        
-        // Bersihkan nama untuk domain
-        $clean_name = clean_for_domain($name);
-        if (empty($clean_name)) continue;
-        
-        // Simpan dengan path lengkap
-        $candidates[] = [
-            'candidate' => $clean_name,
-            'original_name' => $name,
-            'folder_path' => $path,
-            'real_path' => $folder['realpath'],
-            'parent_folder' => $folder['parent']
-        ];
-        
-        // Jika nama folder mengandung titik, coba ekstrak bagian-bagiannya
-        if (strpos($name, '.') !== false) {
-            $parts = explode('.', $name);
-            foreach ($parts as $part) {
-                $part_clean = clean_for_domain($part);
-                if (!empty($part_clean) && strlen($part_clean) > 1) {
-                    $candidates[] = [
-                        'candidate' => $part_clean,
-                        'original_name' => $part,
-                        'folder_path' => $path,
-                        'real_path' => $folder['realpath'],
-                        'parent_folder' => $folder['parent'],
-                        'extracted_from' => $name
-                    ];
-                }
-            }
-        }
+    // Minimum 3 karakter, maksimal 30 karakter
+    if (strlen($clean) < 3 || strlen($clean) > 30) {
+        return false;
     }
     
-    return $candidates;
+    // Tidak boleh hanya angka
+    if (preg_match('/^[0-9]+$/', $clean)) {
+        return false;
+    }
+    
+    // Tidak boleh hash atau random string
+    if (preg_match('/^[a-f0-9]{32}$/i', $clean) || 
+        preg_match('/^[a-f0-9]{40}$/i', $clean)) {
+        return false;
+    }
+    
+    return true;
 }
 
 /**
- * Bersihkan string untuk domain
+ * Clean untuk domain dengan cache
  */
-function clean_for_domain($string) {
-    $string = strtolower(trim($string));
+function clean_domain_candidate($name) {
+    static $cache = [];
+    
+    if (isset($cache[$name])) {
+        return $cache[$name];
+    }
+    
+    $string = strtolower(trim($name));
     $string = preg_replace('/[^a-z0-9\-]/', '', $string);
     $string = preg_replace('/^-+|-+$/', '', $string);
     $string = preg_replace('/-+/', '-', $string);
     
-    // Skip kata umum
-    $common_words = ['www', 'http', 'https', 'com', 'net', 'org', 'web', 'app'];
+    $common_words = ['www', 'http', 'https', 'com', 'net', 'org', 'web'];
     if (in_array($string, $common_words) || strlen($string) < 2) {
+        $cache[$name] = '';
         return '';
     }
     
+    $cache[$name] = $string;
     return $string;
 }
 
 /**
- * Dapatkan semua TLD dari IANA
+ * DNS check dengan caching
  */
-function get_all_tlds_from_iana() {
-    return [
-        // Global TLDs
-        'com', 'net', 'org', 'info', 'biz', 'io', 'co', 'xyz', 'online', 'site', 
-        'tech', 'store', 'shop', 'app', 'dev', 'cloud', 'digital', 'media',
-        
-        // Country TLDs
-        'id', 'co.id', 'ac.id', 'sch.id', 'go.id', 'web.id',
-        'uk', 'co.uk', 'org.uk', 'us', 'ca', 'au', 'de', 'fr', 'it', 'es',
-        'nl', 'ru', 'cn', 'jp', 'kr', 'in', 'sg', 'my', 'ph', 'vn', 'th',
-        'br', 'mx', 'ar', 'cl', 'pe', 'za', 'eg', 'ng', 'ke',
-        
-        // New TLDs
-        'blog', 'news', 'shop', 'store', 'market', 'finance', 'bank',
-        'education', 'school', 'university', 'academy',
-        'health', 'medical', 'clinic', 'hospital',
-        'travel', 'tour', 'hotel', 'restaurant',
-        'art', 'music', 'film', 'tv', 'video', 'photo',
-        'sport', 'fit', 'gym', 'game',
-        'law', 'legal', 'accountant', 'consulting',
-        'design', 'fashion', 'beauty',
-        'auto', 'car', 'cars', 'bike',
-        'realestate', 'property', 'rentals',
-        'technology', 'software', 'code',
-        'agency', 'services', 'solutions',
-        'global', 'world', 'international', 'group',
-        'center', 'studio', 'production',
+function cached_dns_check($domain) {
+    global $dns_cache;
+    
+    if (isset($dns_cache[$domain])) {
+        return $dns_cache[$domain];
+    }
+    
+    // Timeout pendek untuk DNS lookup
+    $records = @dns_get_record($domain, DNS_A + DNS_CNAME, $authns, $addtl, 2);
+    
+    $result = [
+        'has_dns' => !empty($records),
+        'records' => $records
     ];
+    
+    $dns_cache[$domain] = $result;
+    
+    // Cache untuk 60 detik
+    usleep(10000); // 10ms delay antar query
+    
+    return $result;
 }
 
 /**
- * Cek domain dengan menyimpan informasi folder
+ * HTTP check dengan caching dan timeout
  */
-function check_domain_with_folder_info($candidate_info, $tlds, $timeout = 2) {
-    $results = [];
-    $candidate = $candidate_info['candidate'];
+function cached_http_check($url) {
+    global $http_cache;
     
-    foreach ($tlds as $tld) {
-        $domain = $candidate . '.' . $tld;
+    if (isset($http_cache[$url])) {
+        return $http_cache[$url];
+    }
+    
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 3, // Timeout 3 detik
+        CURLOPT_CONNECTTIMEOUT => 2, // Connect timeout 2 detik
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 2,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        CURLOPT_HEADER => true,
+        CURLOPT_NOBODY => true,
+    ]);
+    
+    @curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $effective_url = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+    $total_time = curl_getinfo($ch, CURLINFO_TOTAL_TIME);
+    curl_close($ch);
+    
+    $result = [
+        'http_code' => $http_code,
+        'effective_url' => $effective_url,
+        'response_time' => $total_time,
+        'success' => ($http_code >= 200 && $http_code < 400)
+    ];
+    
+    $http_cache[$url] = $result;
+    
+    // Delay kecil antar request
+    usleep(50000); // 50ms delay
+    
+    return $result;
+}
+
+/**
+ * Get page title dengan timeout singkat
+ */
+function quick_get_title($url) {
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 2,
+        CURLOPT_CONNECTTIMEOUT => 1,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 Domain Scanner',
+        CURLOPT_ENCODING => '',
+    ]);
+    
+    $html = @curl_exec($ch);
+    curl_close($ch);
+    
+    if (preg_match('/<title>(.*?)<\/title>/is', $html, $matches)) {
+        $title = trim(html_entity_decode($matches[1]));
+        return substr($title, 0, 100); // Batasi panjang title
+    }
+    
+    return 'No Title';
+}
+
+/**
+ * Process domain candidates secara batch dengan progress
+ */
+function batch_process_domains($candidates, $tlds, $callback = null) {
+    $results = [];
+    $total = count($candidates);
+    
+    foreach ($candidates as $index => $candidate_info) {
+        $clean_name = clean_domain_candidate($candidate_info['name']);
+        if (empty($clean_name)) continue;
         
-        // Cek DNS terlebih dahulu
-        $dns_records = @dns_get_record($domain, DNS_A | DNS_CNAME);
-        if (!$dns_records) continue;
+        // Cek hanya 3 TLD teratas untuk efisiensi
+        $check_tlds = array_slice($tlds, 0, 3);
         
-        // Cek HTTP/HTTPS
-        $protocols = ['http://', 'https://'];
-        $prefixes = ['', 'www.'];
-        
-        foreach ($protocols as $protocol) {
-            foreach ($prefixes as $prefix) {
-                $url = $protocol . $prefix . $domain;
-                
-                $ch = curl_init();
-                curl_setopt_array($ch, [
-                    CURLOPT_URL => $url,
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_TIMEOUT => $timeout,
-                    CURLOPT_SSL_VERIFYPEER => false,
-                    CURLOPT_SSL_VERIFYHOST => false,
-                    CURLOPT_FOLLOWLOCATION => true,
-                    CURLOPT_MAXREDIRS => 3,
-                    CURLOPT_USERAGENT => 'Mozilla/5.0 Domain Scanner',
-                    CURLOPT_HEADER => true,
-                    CURLOPT_NOBODY => true,
-                ]);
-                
-                curl_exec($ch);
-                $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                $effective_url = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-                curl_close($ch);
-                
-                if ($http_code >= 200 && $http_code < 400) {
-                    // Dapatkan title
-                    $title = get_page_title_simple($effective_url, $timeout);
-                    
-                    // Kumpulkan IP addresses
-                    $ips = [];
-                    foreach ($dns_records as $record) {
-                        if (isset($record['ip'])) {
-                            $ips[] = $record['ip'];
-                        }
-                    }
-                    
-                    $results[] = [
-                        'domain' => $domain,
-                        'url' => $effective_url,
-                        'http_code' => $http_code,
-                        'title' => $title,
-                        'ip_addresses' => array_unique($ips),
-                        'folder_info' => $candidate_info, // Simpan info folder lengkap
-                        'found_via' => $prefix ? 'www subdomain' : 'direct',
-                        'protocol' => $protocol,
-                        'timestamp' => date('Y-m-d H:i:s')
-                    ];
-                    
-                    break 2; // Keluar dari kedua loop
-                }
+        foreach ($check_tlds as $tld) {
+            $domain = $clean_name . '.' . $tld;
+            
+            // Cek DNS dengan cache
+            $dns_info = cached_dns_check($domain);
+            if (!$dns_info['has_dns']) continue;
+            
+            // Cek HTTP
+            $http_info = cached_http_check("https://" . $domain);
+            if (!$http_info['success']) {
+                $http_info = cached_http_check("http://" . $domain);
             }
+            
+            if ($http_info['success']) {
+                $title = quick_get_title($http_info['effective_url']);
+                
+                $results[] = [
+                    'domain' => $domain,
+                    'url' => $http_info['effective_url'],
+                    'http_code' => $http_info['http_code'],
+                    'title' => $title,
+                    'folder_name' => $candidate_info['name'],
+                    'folder_path' => $candidate_info['path'],
+                    'response_time' => $http_info['response_time']
+                ];
+                
+                break; // Stop setelah menemukan TLD pertama yang aktif
+            }
+            
+            // Beri progress update
+            if ($callback && is_callable($callback)) {
+                $progress = round(($index / $total) * 100, 1);
+                $callback($progress, $domain, $http_info['http_code']);
+            }
+        }
+        
+        // Batasi jumlah hasil untuk mencegah overload
+        if (count($results) >= 20) {
+            break;
         }
     }
     
     return $results;
 }
 
-/**
- * Dapatkan title halaman
- */
-function get_page_title_simple($url, $timeout = 2) {
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL => $url,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => $timeout,
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false,
-        CURLOPT_USERAGENT => 'Mozilla/5.0 Domain Scanner',
-    ]);
-    
-    $html = curl_exec($ch);
-    curl_close($ch);
-    
-    if (preg_match('/<title>(.*?)<\/title>/is', $html, $matches)) {
-        return trim(html_entity_decode($matches[1]));
-    }
-    
-    return 'No Title';
+// ==============================================
+// PROSES UTAMA DENGAN SESSION
+// ==============================================
+session_start();
+
+// Inisialisasi session untuk tracking
+if (!isset($_SESSION['scan_progress'])) {
+    $_SESSION['scan_progress'] = [
+        'status' => 'idle',
+        'progress' => 0,
+        'message' => '',
+        'results' => [],
+        'start_time' => null,
+        'end_time' => null
+    ];
 }
 
-// ==============================================
-// PROSES UTAMA
-// ==============================================
+// Handle AJAX progress check
+if (isset($_GET['check_progress'])) {
+    header('Content-Type: application/json');
+    echo json_encode($_SESSION['scan_progress']);
+    exit;
+}
 
-$results = [];
-$scan_stats = [
-    'start_time' => microtime(true),
-    'folders_found' => 0,
-    'candidates_found' => 0,
-    'domains_found' => 0
-];
-
-// Proses scan jika diminta
-if (isset($_GET['scan']) || isset($_POST['scan'])) {
-    // Langkah 1: Scan folder
-    echo "<h2>Step 1: Scanning directories...</h2>";
+// Start scan jika diminta
+if (isset($_POST['start_scan']) || isset($_GET['start_scan'])) {
+    $_SESSION['scan_progress'] = [
+        'status' => 'scanning',
+        'progress' => 0,
+        'message' => 'Starting directory scan...',
+        'results' => [],
+        'start_time' => time(),
+        'end_time' => null
+    ];
+    session_write_close();
+    
+    // Simulasikan async process dengan output buffering
+    if (ob_get_level() == 0) ob_start();
+    
+    // Step 1: Scan directories
+    echo "<script>parent.updateProgress(10, 'Scanning directories...');</script>";
+    ob_flush();
     flush();
     
-    $folders = scan_server_with_paths();
-    $scan_stats['folders_found'] = count($folders);
+    $folders = optimized_directory_scan();
     
-    // Langkah 2: Ekstrak kandidat
-    echo "<h2>Step 2: Extracting domain candidates...</h2>";
+    // Step 2: Prepare candidates
+    echo "<script>parent.updateProgress(30, 'Preparing domain candidates...');</script>";
+    ob_flush();
     flush();
     
-    $candidates = extract_domain_candidates_with_paths($folders);
-    $scan_stats['candidates_found'] = count($candidates);
-    
-    // Langkah 3: Cek domain
-    echo "<h2>Step 3: Checking domains...</h2>";
-    flush();
-    
-    $found_domains = [];
-    $checked = 0;
-    
-    foreach ($candidates as $candidate_info) {
-        $domain_results = check_domain_with_folder_info($candidate_info, $all_tlds, 2);
-        
-        foreach ($domain_results as $domain_result) {
-            $found_domains[] = $domain_result;
-            
-            // Tampilkan progress
-            echo "✅ Found: " . $domain_result['domain'] . 
-                 " (from: " . basename($candidate_info['folder_path']) . ")<br>";
-            flush();
-        }
-        
-        $checked++;
-        if ($checked % 10 == 0) {
-            echo "Progress: $checked/" . count($candidates) . " candidates checked<br>";
-            flush();
-        }
-        
-        // Batasi untuk demo
-        if ($checked > 50 && !isset($_GET['full'])) {
-            echo "<br>⚠️ Demo mode: Checked 50 candidates. Use ?full=1 for complete scan.<br>";
-            break;
+    $candidates = [];
+    foreach ($folders as $folder) {
+        if (is_valid_domain_candidate($folder['name'])) {
+            $candidates[] = $folder;
         }
     }
     
-    $results = $found_domains;
-    $scan_stats['domains_found'] = count($results);
-    $scan_stats['end_time'] = microtime(true);
-    $scan_stats['duration'] = round($scan_stats['end_time'] - $scan_stats['start_time'], 2);
+    // Step 3: Process domains
+    echo "<script>parent.updateProgress(50, 'Checking domains...');</script>";
+    ob_flush();
+    flush();
+    
+    $results = batch_process_domains($candidates, $priority_tlds, 
+        function($progress, $domain, $http_code) {
+            echo "<script>parent.updateProgress(" . (50 + ($progress/2)) . ", 'Checking: $domain ($http_code)');</script>";
+            ob_flush();
+            flush();
+        }
+    );
+    
+    // Save results to session
+    session_start();
+    $_SESSION['scan_progress'] = [
+        'status' => 'completed',
+        'progress' => 100,
+        'message' => 'Scan completed successfully',
+        'results' => $results,
+        'start_time' => $_SESSION['scan_progress']['start_time'],
+        'end_time' => time(),
+        'stats' => [
+            'folders_scanned' => count($folders),
+            'candidates_checked' => count($candidates),
+            'domains_found' => count($results),
+            'duration' => time() - $_SESSION['scan_progress']['start_time']
+        ]
+    ];
+    
+    echo "<script>parent.scanComplete();</script>";
+    ob_end_flush();
+    exit;
+}
+
+// Clear results jika diminta
+if (isset($_GET['clear_results'])) {
+    $_SESSION['scan_progress'] = [
+        'status' => 'idle',
+        'progress' => 0,
+        'message' => '',
+        'results' => [],
+        'start_time' => null,
+        'end_time' => null
+    ];
+    header('Location: ' . $_SERVER['PHP_SELF']);
+    exit;
 }
 ?>
 
@@ -382,66 +441,66 @@ if (isset($_GET['scan']) || isset($_POST['scan'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🔍 Domain Finder with Folder Paths</title>
+    <title>⚡ Fast Domain Scanner</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1a2980, #26d0ce);
-            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            padding: 20px;
+            color: #333;
         }
         
         .container {
-            max-width: 1400px;
+            max-width: 1200px;
             margin: 0 auto;
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
             overflow: hidden;
+            min-height: 100vh;
         }
         
         header {
-            background: linear-gradient(135deg, #2c3e50, #34495e);
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
             color: white;
             padding: 40px;
             text-align: center;
         }
         
-        header h1 {
-            font-size: 2.8em;
+        h1 {
+            font-size: 2.5em;
             margin-bottom: 15px;
-            color: #ecf0f1;
+            color: #fff;
         }
         
         .subtitle {
-            color: #bdc3c7;
-            font-size: 1.2em;
+            color: #ecf0f1;
+            font-size: 1.1em;
             max-width: 800px;
             margin: 0 auto;
         }
         
         .content {
-            padding: 40px;
+            padding: 30px;
         }
         
-        .scan-controls {
+        .control-panel {
             background: #f8f9fa;
             padding: 30px;
-            border-radius: 15px;
+            border-radius: 10px;
             margin-bottom: 30px;
             text-align: center;
-            border: 2px dashed #3498db;
+            border: 2px solid #e9ecef;
         }
         
         .btn {
             display: inline-block;
             padding: 15px 40px;
-            font-size: 1.2em;
+            font-size: 1.1em;
             font-weight: bold;
             border: none;
-            border-radius: 10px;
+            border-radius: 8px;
             cursor: pointer;
             transition: all 0.3s;
             margin: 10px;
@@ -449,20 +508,121 @@ if (isset($_GET['scan']) || isset($_POST['scan'])) {
         }
         
         .btn-primary {
+            background: linear-gradient(135deg, #00b09b, #96c93d);
+            color: white;
+            box-shadow: 0 5px 15px rgba(0, 176, 155, 0.3);
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 20px rgba(0, 176, 155, 0.4);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
             background: linear-gradient(135deg, #3498db, #2980b9);
             color: white;
-            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.4);
         }
         
-        .btn-primary:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 10px 20px rgba(52, 152, 219, 0.6);
+        .progress-container {
+            margin: 30px 0;
+            background: #f1f1f1;
+            border-radius: 10px;
+            padding: 20px;
+            display: none;
         }
         
-        .btn-success {
-            background: linear-gradient(135deg, #2ecc71, #27ae60);
-            color: white;
-            box-shadow: 0 5px 15px rgba(46, 204, 113, 0.4);
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00b09b, #96c93d);
+            border-radius: 10px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .progress-text {
+            text-align: center;
+            color: #666;
+            font-weight: bold;
+        }
+        
+        .results-container {
+            display: none;
+            margin-top: 30px;
+        }
+        
+        .domain-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        
+        .domain-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.15);
+        }
+        
+        .domain-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .domain-name {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .domain-status {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+        
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .domain-url {
+            color: #3498db;
+            text-decoration: none;
+            display: block;
+            margin-bottom: 10px;
+            word-break: break-all;
+        }
+        
+        .domain-url:hover {
+            text-decoration: underline;
+        }
+        
+        .folder-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
         }
         
         .stats-grid {
@@ -474,11 +634,11 @@ if (isset($_GET['scan']) || isset($_POST['scan'])) {
         
         .stat-card {
             background: white;
-            padding: 25px;
+            padding: 20px;
             border-radius: 10px;
             text-align: center;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-            border-top: 5px solid #3498db;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-top: 4px solid #3498db;
         }
         
         .stat-number {
@@ -490,130 +650,54 @@ if (isset($_GET['scan']) || isset($_POST['scan'])) {
         
         .stat-label {
             color: #7f8c8d;
-            font-size: 1em;
+            font-size: 0.9em;
             text-transform: uppercase;
         }
         
-        .results-section {
-            margin-top: 40px;
+        .loading {
+            text-align: center;
+            padding: 40px;
         }
         
-        .domain-card {
-            background: white;
-            border-radius: 10px;
-            padding: 25px;
-            margin-bottom: 20px;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-            border-left: 5px solid #2ecc71;
-            transition: transform 0.3s;
-        }
-        
-        .domain-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-        }
-        
-        .domain-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #ecf0f1;
-        }
-        
-        .domain-name {
-            font-size: 1.5em;
-            font-weight: bold;
-            color: #2c3e50;
-        }
-        
-        .domain-url {
-            color: #3498db;
-            text-decoration: none;
-            font-weight: bold;
-        }
-        
-        .domain-url:hover {
-            text-decoration: underline;
-        }
-        
-        .folder-info {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 15px 0;
-            border-left: 4px solid #9b59b6;
-        }
-        
-        .folder-path {
-            font-family: 'Courier New', monospace;
-            background: #2c3e50;
-            color: #ecf0f1;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 10px 0;
-            word-break: break-all;
-        }
-        
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-top: 15px;
-        }
-        
-        .info-item {
-            background: #ecf0f1;
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 0.9em;
-        }
-        
-        .info-label {
-            color: #7f8c8d;
-            font-weight: bold;
-            display: block;
-            margin-bottom: 5px;
-        }
-        
-        .badge {
+        .loading-spinner {
             display: inline-block;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            font-weight: bold;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px;
         }
         
-        .badge-success {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .badge-info {
-            background: #d1ecf1;
-            color: #0c5460;
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
         
         footer {
             text-align: center;
             padding: 30px;
-            background: #2c3e50;
-            color: #bdc3c7;
+            background: #f8f9fa;
+            color: #6c757d;
             margin-top: 40px;
+            border-top: 1px solid #dee2e6;
         }
         
         @media (max-width: 768px) {
             .content {
-                padding: 20px;
+                padding: 15px;
             }
             
-            header h1 {
-                font-size: 2em;
+            .btn {
+                display: block;
+                width: 100%;
+                margin: 10px 0;
             }
             
-            .info-grid {
-                grid-template-columns: 1fr;
+            .domain-header {
+                flex-direction: column;
+                align-items: flex-start;
             }
         }
     </style>
@@ -621,187 +705,192 @@ if (isset($_GET['scan']) || isset($_POST['scan'])) {
 <body>
     <div class="container">
         <header>
-            <h1>🔍 Domain Scanner with Folder Paths</h1>
-            <p class="subtitle">Find domains and display their exact folder locations on the server</p>
+            <h1>⚡ Fast Domain Scanner</h1>
+            <p class="subtitle">Optimized for speed - No more 404 errors or long waiting times</p>
         </header>
         
         <div class="content">
-            <div class="scan-controls">
-                <h2 style="color: #2c3e50; margin-bottom: 20px;">Start Domain Discovery</h2>
-                <p style="color: #7f8c8d; margin-bottom: 30px;">
-                    This tool will scan server directories, find potential domains, and display their exact folder locations.
+            <div class="control-panel">
+                <h2 style="color: #2c3e50; margin-bottom: 20px;">Quick Domain Discovery</h2>
+                <p style="color: #6c757d; margin-bottom: 30px;">
+                    This optimized scanner will quickly find active domains in your server directories.
+                    Maximum scan time: 3 minutes.
                 </p>
                 
-                <form method="POST" action="">
-                    <button type="submit" name="scan" value="1" class="btn btn-primary">
-                        🚀 Start Scanning
-                    </button>
-                    <a href="?scan=1&full=1" class="btn btn-success">
-                        ⚡ Full Deep Scan
-                    </a>
-                </form>
+                <button id="startScan" class="btn btn-primary" onclick="startScan()">
+                    🚀 Start Quick Scan
+                </button>
+                <button id="clearResults" class="btn btn-secondary" onclick="clearResults()">
+                    🗑️ Clear Results
+                </button>
             </div>
             
-            <?php if (!empty($results) || !empty($scan_stats['folders_found'])): ?>
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-label">Folders Scanned</div>
-                    <div class="stat-number"><?php echo number_format($scan_stats['folders_found']); ?></div>
+            <div id="progressContainer" class="progress-container">
+                <div class="progress-bar">
+                    <div id="progressFill" class="progress-fill"></div>
                 </div>
-                
-                <div class="stat-card">
-                    <div class="stat-label">Candidates Found</div>
-                    <div class="stat-number"><?php echo number_format($scan_stats['candidates_found']); ?></div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-label">Domains Found</div>
-                    <div class="stat-number"><?php echo number_format($scan_stats['domains_found']); ?></div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-label">Scan Duration</div>
-                    <div class="stat-number"><?php echo $scan_stats['duration']; ?>s</div>
-                </div>
+                <div id="progressText" class="progress-text">0% - Initializing...</div>
             </div>
             
-            <?php if (!empty($results)): ?>
-            <div class="results-section">
-                <h2 style="color: #2c3e50; margin-bottom: 30px; font-size: 1.8em;">
-                    📊 Found Domains with Folder Locations
-                </h2>
-                
-                <?php foreach ($results as $index => $domain): ?>
-                <div class="domain-card">
-                    <div class="domain-header">
-                        <div class="domain-name">
-                            <?php echo ($index + 1) . '. ' . htmlspecialchars($domain['domain']); ?>
-                        </div>
-                        <div>
-                            <span class="badge badge-success">
-                                HTTP <?php echo $domain['http_code']; ?>
-                            </span>
-                        </div>
-                    </div>
-                    
-                    <div style="margin-bottom: 15px;">
-                        <a href="<?php echo htmlspecialchars($domain['url']); ?>" 
-                           target="_blank" 
-                           class="domain-url">
-                            🌐 <?php echo htmlspecialchars($domain['url']); ?>
-                        </a>
-                        <div style="margin-top: 5px; color: #7f8c8d;">
-                            <strong>Title:</strong> <?php echo htmlspecialchars($domain['title']); ?>
-                        </div>
-                    </div>
-                    
-                    <!-- Informasi Folder -->
-                    <div class="folder-info">
-                        <h3 style="color: #9b59b6; margin-bottom: 15px;">
-                            📁 Folder Source Information
-                        </h3>
-                        
-                        <div style="margin-bottom: 10px;">
-                            <span class="info-label">Original Folder Name:</span>
-                            <strong><?php echo htmlspecialchars($domain['folder_info']['original_name']); ?></strong>
-                            <?php if (isset($domain['folder_info']['extracted_from'])): ?>
-                                <br><small>(extracted from: <?php echo htmlspecialchars($domain['folder_info']['extracted_from']); ?>)</small>
-                            <?php endif; ?>
-                        </div>
-                        
-                        <span class="info-label">Full Folder Path:</span>
-                        <div class="folder-path">
-                            <?php echo htmlspecialchars($domain['folder_info']['folder_path']); ?>
-                        </div>
-                        
-                        <?php if ($domain['folder_info']['real_path'] != $domain['folder_info']['folder_path']): ?>
-                        <div style="margin-top: 10px;">
-                            <span class="info-label">Real Path (symlink resolved):</span>
-                            <div class="folder-path" style="background: #34495e;">
-                                <?php echo htmlspecialchars($domain['folder_info']['real_path']); ?>
-                            </div>
-                        </div>
-                        <?php endif; ?>
-                        
-                        <div style="margin-top: 10px;">
-                            <span class="info-label">Parent Directory:</span>
-                            <?php echo htmlspecialchars($domain['folder_info']['parent_folder']); ?>
-                        </div>
-                    </div>
-                    
-                    <!-- Informasi Teknis -->
-                    <div class="info-grid">
-                        <div class="info-item">
-                            <span class="info-label">Protocol:</span>
-                            <?php echo htmlspecialchars(str_replace(['http://', 'https://'], '', $domain['protocol'])); ?>
-                        </div>
-                        
-                        <div class="info-item">
-                            <span class="info-label">Found Via:</span>
-                            <?php echo htmlspecialchars($domain['found_via']); ?>
-                        </div>
-                        
-                        <div class="info-item">
-                            <span class="info-label">IP Addresses:</span>
-                            <?php echo implode(', ', $domain['ip_addresses']); ?>
-                        </div>
-                        
-                        <div class="info-item">
-                            <span class="info-label">Discovered:</span>
-                            <?php echo htmlspecialchars($domain['timestamp']); ?>
-                        </div>
-                    </div>
-                </div>
-                <?php endforeach; ?>
-                
-                <div style="text-align: center; margin-top: 40px;">
-                    <button onclick="exportResults()" class="btn btn-primary" style="margin-right: 10px;">
-                        📥 Export Results
-                    </button>
-                    <button onclick="printResults()" class="btn btn-primary">
-                        🖨️ Print Results
-                    </button>
-                </div>
-                
-                <script>
-                function exportResults() {
-                    const data = <?php echo json_encode($results, JSON_PRETTY_PRINT); ?>;
-                    const stats = <?php echo json_encode($scan_stats, JSON_PRETTY_PRINT); ?>;
-                    
-                    const exportData = {
-                        scan_stats: stats,
-                        domains: data,
-                        generated_at: new Date().toISOString(),
-                        server: '<?php echo $_SERVER['SERVER_NAME'] ?? "localhost"; ?>'
-                    };
-                    
-                    const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'domain-scan-<?php echo date('Y-m-d-His'); ?>.json';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                }
-                
-                function printResults() {
-                    window.print();
-                }
-                </script>
+            <div id="resultsContainer" class="results-container">
+                <div id="statsContainer"></div>
+                <div id="domainsList"></div>
             </div>
-            <?php endif; ?>
-            <?php endif; ?>
+            
+            <div id="loading" class="loading" style="display: none;">
+                <div class="loading-spinner"></div>
+                <p>Processing scan results...</p>
+            </div>
         </div>
         
         <footer>
-            <p><strong>Domain Scanner with Folder Paths v4.0</strong></p>
-            <p>Shows exact folder locations where domains were discovered</p>
-            <p style="margin-top: 15px; font-size: 0.9em; color: #95a5a6;">
-                Scans server directories • Extracts domain names • Verifies DNS and HTTP • Displays full folder paths
-            </p>
+            <p><strong>Fast Domain Scanner v5.0</strong> | Optimized with DNS caching and timeout management</p>
+            <p>Scans web directories only • Checks top TLDs • Returns results in under 3 minutes</p>
         </footer>
     </div>
+
+    <script>
+        let scanInProgress = false;
+        let progressCheckInterval;
+        
+        function startScan() {
+            if (scanInProgress) return;
+            
+            scanInProgress = true;
+            document.getElementById('startScan').disabled = true;
+            document.getElementById('progressContainer').style.display = 'block';
+            document.getElementById('resultsContainer').style.display = 'none';
+            document.getElementById('loading').style.display = 'none';
+            
+            // Reset progress
+            updateProgress(0, 'Starting scan...');
+            
+            // Create iframe untuk background processing
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.name = 'scanFrame';
+            iframe.src = '<?php echo $_SERVER['PHP_SELF']; ?>?start_scan=1';
+            document.body.appendChild(iframe);
+            
+            // Mulai progress checking
+            progressCheckInterval = setInterval(checkProgress, 1000);
+        }
+        
+        function checkProgress() {
+            fetch('<?php echo $_SERVER['PHP_SELF']; ?>?check_progress=1')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'scanning') {
+                        updateProgress(data.progress, data.message);
+                    } else if (data.status === 'completed') {
+                        clearInterval(progressCheckInterval);
+                        scanComplete(data);
+                    } else if (data.status === 'idle') {
+                        // Do nothing
+                    }
+                })
+                .catch(error => {
+                    console.error('Progress check failed:', error);
+                });
+        }
+        
+        function updateProgress(percent, message) {
+            document.getElementById('progressFill').style.width = percent + '%';
+            document.getElementById('progressText').innerHTML = 
+                Math.round(percent) + '% - ' + message;
+        }
+        
+        function scanComplete(data) {
+            scanInProgress = false;
+            document.getElementById('startScan').disabled = false;
+            document.getElementById('progressContainer').style.display = 'none';
+            
+            if (data.results && data.results.length > 0) {
+                displayResults(data);
+            } else {
+                document.getElementById('resultsContainer').style.display = 'block';
+                document.getElementById('domainsList').innerHTML = 
+                    '<div class="domain-card" style="text-align: center; padding: 40px;">' +
+                    '<h3>No domains found</h3>' +
+                    '<p>No active domains were found in the scanned directories.</p>' +
+                    '</div>';
+            }
+        }
+        
+        function displayResults(data) {
+            // Display stats
+            const statsHtml = `
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Folders Scanned</div>
+                        <div class="stat-number">${data.stats.folders_scanned || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Domains Found</div>
+                        <div class="stat-number">${data.stats.domains_found || 0}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Scan Duration</div>
+                        <div class="stat-number">${data.stats.duration || 0}s</div>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('statsContainer').innerHTML = statsHtml;
+            
+            // Display domains
+            let domainsHtml = '';
+            data.results.forEach((domain, index) => {
+                domainsHtml += `
+                    <div class="domain-card">
+                        <div class="domain-header">
+                            <div class="domain-name">${index + 1}. ${domain.domain}</div>
+                            <div class="domain-status status-success">HTTP ${domain.http_code}</div>
+                        </div>
+                        <a href="${domain.url}" target="_blank" class="domain-url">
+                            🔗 ${domain.url}
+                        </a>
+                        <div style="margin-bottom: 10px;">
+                            <strong>Title:</strong> ${domain.title || 'No Title'}
+                        </div>
+                        <div class="folder-info">
+                            <strong>📁 Source Folder:</strong> ${domain.folder_name}<br>
+                            <strong>📍 Path:</strong> ${domain.folder_path}
+                        </div>
+                        <div style="margin-top: 10px; font-size: 0.9em; color: #666;">
+                            Response time: ${domain.response_time.toFixed(2)}s
+                        </div>
+                    </div>
+                `;
+            });
+            
+            document.getElementById('domainsList').innerHTML = domainsHtml;
+            document.getElementById('resultsContainer').style.display = 'block';
+        }
+        
+        function clearResults() {
+            if (confirm('Clear all scan results?')) {
+                window.location.href = '<?php echo $_SERVER['PHP_SELF']; ?>?clear_results=1';
+            }
+        }
+        
+        // Auto-check if scan was in progress
+        window.addEventListener('load', function() {
+            fetch('<?php echo $_SERVER['PHP_SELF']; ?>?check_progress=1')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'completed') {
+                        scanComplete(data);
+                    } else if (data.status === 'scanning') {
+                        // Continue monitoring if scan was interrupted
+                        scanInProgress = true;
+                        document.getElementById('startScan').disabled = true;
+                        document.getElementById('progressContainer').style.display = 'block';
+                        updateProgress(data.progress, data.message);
+                        progressCheckInterval = setInterval(checkProgress, 1000);
+                    }
+                });
+        });
+    </script>
 </body>
 </html>
