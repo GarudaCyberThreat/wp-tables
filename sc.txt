@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>THIS SITE IS SEIZED</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      height: 100%;
+      background: linear-gradient(135deg, #001818 0%, #000 100%);
+      overflow: hidden;
+      font-family: 'Share Tech Mono', monospace;
+    }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 0;
+    }
+    .container {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      z-index: 1;
+    }
+    .skull {
+      width: 250px;
+      margin-bottom: 20px;
+      animation: pulse 2s infinite;
+      filter: drop-shadow(0 0 10px #00E5CF);
+    }
+    .text {
+      color: #00E5CF;
+      font-size: 2.5em;
+      font-weight: bold;
+      text-shadow:
+        0 0 5px #00E5CF,
+        0 0 10px #00E5CF,
+        0 0 20px #00B3A4,
+        0 0 40px #008C7A;
+      animation: glitch 1.5s infinite;
+    }
+    .dud {
+      color: #00675F;
+    }
+    .wkwk {
+      color: white;
+      font-size: 1.5em;
+      margin-top: 10px;
+      user-select: none;
+      text-shadow: 0 0 5px #000000aa;
+    }
+
+    .quote {
+      position: fixed;
+      bottom: 20px;
+      width: 100%;
+      text-align: center;
+      color: #00E5CF;
+      font-size: 1em;
+      font-family: 'Share Tech Mono', monospace;
+      user-select: none;
+      pointer-events: none;
+      text-shadow: 0 0 5px #000000aa;
+      padding: 0 10px;
+      z-index: 2;
+    }
+
+    @keyframes glitch {
+      0% { text-shadow: 2px 2px #00E5CF, -2px -2px #008C7A55; }
+      20% { text-shadow: -2px 1px #00FFAAaa, 2px -2px #00E5CF77; }
+      40% { text-shadow: 1px -1px #00E5CF, -1px 2px #00B3A4; }
+      60% { text-shadow: 3px 0px #00FFAAaa, -3px 0px #008C7A55; }
+      80% { text-shadow: 0 0 10px #00E5CF, 0 0 30px #00B3A4; }
+      100% { text-shadow: 2px 2px #00E5CF, -2px -2px #008C7A55; }
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); filter: drop-shadow(0 0 30px #00E5CF); }
+      100% { transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  
+  <div class="container">
+    <img src="https://l.top4top.io/p_3567dmjv01.png" alt="skull" class="skull">
+    <div class="text">THIS SITE IS SEIZED</div>
+    <div class="wkwk">This bastard gambling site has harmed and destroyed many people's lives</div>
+  </div>
+
+  <div class="quote">
+    Greetz: ./RAZOR - Fidxploit - SLX_94 - DoremiXcode - RED GHOST  - MrKaktus/Astroboy 
+  </div>
+
+  <audio id="bg-music" src="https://b.top4top.io/m_36320kc3q1.mp3"></audio>
+
+  <script>
+    // Particle Net
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const particles = [];
+    const particleCount = 120;
+
+    for (let i = 0; i < particleCount; i++) {
+      particles.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        vx: (Math.random() - 0.5) * 0.8,
+        vy: (Math.random() - 0.5) * 0.8
+      });
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < particleCount; i++) {
+        let p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+
+        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 1.2, 0, Math.PI * 2);
+        ctx.fillStyle = "#00E5CF";
+        ctx.fill();
+
+        for (let j = i + 1; j < particleCount; j++) {
+          let q = particles[j];
+          let dx = p.x - q.x;
+          let dy = p.y - q.y;
+          let dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < 100) {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(q.x, q.y);
+            ctx.strokeStyle = "#008C7A";
+            ctx.stroke();
+          }
+        }
+      }
+      requestAnimationFrame(draw);
+    }
+    draw();
+
+    // Scramble Text
+    class TextScramble {
+      constructor(el) {
+        this.el = el;
+        this.chars = '!@#$%^&*()_+=-{}[]|:;<>,.?/~';
+        this.update = this.update.bind(this);
+      }
+
+      setText(newText) {
+        const oldText = this.el.innerText;
+        const length = Math.max(oldText.length, newText.length);
+        const promise = new Promise(resolve => this.resolve = resolve);
+        this.queue = [];
+
+        for (let i = 0; i < length; i++) {
+          const from = oldText[i] || '';
+          const to = newText[i] || '';
+          const start = Math.floor(Math.random() * 40);
+          const end = start + Math.floor(Math.random() * 40);
+          this.queue.push({ from, to, start, end });
+        }
+
+        cancelAnimationFrame(this.frameRequest);
+        this.frame = 0;
+        this.update();
+        return promise;
+      }
+
+      update() {
+        let output = '';
+        let complete = 0;
+        for (let i = 0, n = this.queue.length; i < n; i++) {
+          let { from, to, start, end, char } = this.queue[i];
+          if (this.frame >= end) {
+            complete++;
+            output += to;
+          } else if (this.frame >= start) {
+            if (!char || Math.random() < 0.28) {
+              char = this.randomChar();
+              this.queue[i].char = char;
+            }
+            output += `<span class="dud">${char}</span>`;
+          } else {
+            output += from;
+          }
+        }
+
+        this.el.innerHTML = output;
+
+        if (complete === this.queue.length) {
+          this.resolve();
+        } else {
+          this.frameRequest = requestAnimationFrame(this.update);
+          this.frame++;
+        }
+      }
+
+      randomChar() {
+        return this.chars[Math.floor(Math.random() * this.chars.length)];
+      }
+    }
+
+    const phrases = [
+      'THIS SITE IS SEIZED',
+      'SEIZED BY FIDZXPLOIT',
+      'WE INDOHAXSEC TEAM ',
+      'FUCK GAMBLING'
+    ];
+
+    const el = document.querySelector('.text');
+    const fx = new TextScramble(el);
+
+    let counter = 0;
+    const next = () => {
+      fx.setText(phrases[counter]).then(() => {
+        setTimeout(next, 2500);
+      });
+      counter = (counter + 1) % phrases.length;
+    };
+
+    next();
+
+    // Musik klik pertama
+    let musicPlayed = false;
+    const bgMusic = document.getElementById('bg-music');
+
+    document.addEventListener('click', () => {
+      if (!musicPlayed) {
+        bgMusic.play().catch(err => console.error("Autoplay gagal:", err));
+        musicPlayed = true;
+      }
+    });
+  </script>
+</body>
+</html>
